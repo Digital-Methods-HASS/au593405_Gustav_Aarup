@@ -1,0 +1,42 @@
+---
+title: "CDS_Functions"
+output: html_document
+---
+
+
+
+```{r}
+library(pacman)
+p_load(tidyverse,gganimate,gapminder,gifski,png)
+```
+
+#I make a function that calculates the GDP by multiplying population size and gdp per capita
+```{r Function}
+gdp <- function(pop,gdppc){
+  g <- pop*gdppc
+  return(g)
+}
+
+years <- c("1967", "1977", "1987", "1997", "2007","2017")
+gapminder[gapminder$year %in% years,] %>% filter(country=="Denmark") %>% summarise(GDP = gdp(pop,gdpPercap), year=year)
+```
+
+#Writing a loop
+```{r Loop}
+for(c in levels(as.factor(gapminder$country))){
+  if(substring(c, 1, 1)=="B"){
+    print(paste(c,"Is a B-country", sep=" "))
+    if(gapminder[which(gapminder$country==c)[12],]$lifeExp <50){
+      print("And life expectancy is below 50")
+    }
+    if(gapminder[which(gapminder$country==c)[12],]$lifeExp >=50 & 
+       gapminder[which(gapminder$country==c)[12],]$lifeExp <70){
+      print("And life expectancy is between 50 and 70")
+    }
+    if(gapminder[which(gapminder$country==c)[12],]$lifeExp >=70){
+      print("And life expectancy is above 70")
+    }
+  }
+}
+```
+
