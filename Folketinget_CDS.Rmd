@@ -1,0 +1,125 @@
+---
+title: "folketinget_CDS"
+output: html_document
+---
+
+
+
+```{r}
+library(pacman)
+p_load(rvest, stringr, tidyverse)
+
+#link with list of parliament members
+link <- "https://www.ft.dk/da/medlemmer/medlemmernes-adresser"
+
+#Scraping link
+web <- read_html(link)
+members <- html_nodes(web,"td > a")
+members <- html_text(members)
+members <- data.frame(name=as.character(unlist(members)))
+members$name <- as.character(members$name)
+
+#making columns with name and party
+members$party <- str_remove_all(str_extract(members$name, "\\([a-zA-z]."), "[:punct:]")
+members$name <- substr(str_remove(members$name, "\\(.*"),1,nchar(str_remove(members$name, "\\(.*"))-1)
+
+#Great stuff
+members[1:10,]
+```
+
+#Setting up twitter scraper
+```{r}
+p_load(twitteR,httr)
+oauth_endpoint(authorize = "https://api.twitter.com/oauth",
+               access = "https://api.twitter.com/oauth/access_token")
+consumer_key <- "J9SE1V1V94POa67f1lYMcU1Li"
+consumer_secret <- "2dSwlY5p0oddQ5eC0UKAYgIwLaThV5acpOCLCaX1poWjJ9xyo6"
+access_token <- "3184351755-eVNLDY2dRGOhvi5jKqHdmswrqiBmm09eLwo41C9"
+access_secret <- "GLZR7ZtKZ8GMEPqzhB5uH3Vymmth5p5Z5DAkVOS3wieXv"
+twitteR::setup_twitter_oauth(consumer_key,consumer_secret,access_token,access_secret)
+```
+
+
+#Scraping twitter for all the parliament members
+```{r}
+#Loading packages
+p_load(gtools, lubridate)
+
+#Creating empty dataframe i can bind the tweets to
+all <- as.data.frame(matrix(0))
+
+#Searching twitter for the parliament members one at a time, saving the tweets in the dataframe
+for(i in 1:nrow(members)){
+  print(i)
+  df <- searchTwitter(members$name[i], n=5000, lang="da")
+  if(length(df)!=0){
+    df <- twListToDF(df)
+    df$name <- members$name[i]
+    df$party <- members$party[i]
+    all <- smartbind(all,df)
+  }
+}
+folketinget_df <- all[-1,-1]
+rownames(folketinget_df) <- 1:nrow(folketinget_df)
+```
+
+```{r}
+#loading tweets i scraped last week, and adding the new ones
+folketinget_df_1 <- read.csv("folketinget_twitter.csv")
+
+folketinget_df <- rbind(folketinget_df_1, folketinget_df)
+folketinget_df <- folketinget_df[!duplicated(folketinget_df$id),]
+folketinget_df %>% group_by(name, ) %>% summarise(n=n()) %>% arrange(desc(n))
+```
+
+```{r}
+folketinget_df$created <- as.Date(folketinget_df$created)
+folketinget_df$created <- ymd(folketinget_df$created)
+
+tops <- as.data.frame(matrix(0,ncol=4))
+names(tops) <- c("name", "n","date", "rank")
+for(l in levels(as.factor(folketinget_df$created))){
+  since <- folketinget_df[folketinget_df$created<=l,]
+  top10 <- since %>% group_by(name) %>% summarise(n=n()) %>%
+    arrange(desc(n)) %>% top_n(10)
+  top10 <- top10[1:10,]
+  top10$date <- l
+  top10$rank <- 1:10
+  tops <- rbind(tops,top10)
+}
+tops <- tops[-1,]
+tops <- left_join(tops, members)
+```
+
+#Making bar chart race, to explore the most mentioned members of the Danish parliament 
+```{r}
+p_load(scales,gganimate,ggplot2)
+tops$party <- as.factor(tops$party)
+
+#I used the chrome addon colorzilla to grab the color codes from the parties' websites
+party_colours <- c("#024D89", "#00593C","#281815", "#EC008C", "#F04D46","#C4171B", "#03BA50", "#002883")
+p <- tops %>%
+    ggplot(aes(x = -rank,y = n)) +
+        geom_tile(aes(y = n/2, height = n, fill = party), width = 0.9) +
+        geom_text(aes(label = name), hjust = "right", colour = "#bebebe", fontface = "bold", nudge_y = -10) +
+        geom_text(aes(label = scales::comma(n, scale=1,accuracy = 1)),hjust = "left", nudge_y = 10, colour = "grey30") +
+        coord_flip(clip="off") +
+        scale_fill_manual(name = 'Party', 
+                          values = party_colours,
+                          aesthetics = "fill") +
+        scale_x_discrete("") +
+        scale_y_continuous("",labels=scales::comma) +
+        theme(panel.grid.major.y=element_blank(),
+              panel.grid.minor.x=element_blank(),
+              plot.margin = margin(1,1,1,2,"cm"),
+              axis.text.y=element_blank()) +
+        # gganimate code to transition by year:
+        transition_time(ymd(date)) +
+        labs(title='Most mentioned parliament members on Twitter.com in the last 14 days',
+             subtitle='Mentions at {round(frame_time,0)}',
+             caption='Source: twitter.com')
+
+animate(p, nframes = 600, fps = 25, end_pause = 50, width = 1200, height = 900)
+```
+
+
